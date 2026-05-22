@@ -2,7 +2,8 @@ import os
 import json
 from datetime import date
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from mcp_client import call_tool, get_tools, get_tasks, MCP_SERVER_URL
+import services.tasks as svc
+from mcp_client import call_tool, get_tools, MCP_SERVER_URL
 
 router = APIRouter()
 
@@ -109,7 +110,7 @@ async def stream_response_ollama(websocket: WebSocket, history: list):
             await websocket.send_json({"type": "text_delta", "content": full_text})
         break
 
-    tasks = await get_tasks()
+    tasks = svc.list_all()
     await websocket.send_json({"type": "tasks_updated", "tasks": tasks})
     await websocket.send_json({"type": "message_complete"})
     history.append({"role": "assistant", "content": full_text})
@@ -135,7 +136,7 @@ async def stream_response_anthropic(websocket: WebSocket, history: list):
             full_text += block.text
             await websocket.send_json({"type": "text_delta", "content": block.text})
 
-    tasks = await get_tasks()
+    tasks = svc.list_all()
     await websocket.send_json({"type": "tasks_updated", "tasks": tasks})
     await websocket.send_json({"type": "message_complete"})
 
@@ -150,7 +151,7 @@ async def agent_websocket(websocket: WebSocket):
     await websocket.accept()
     history: list = []
 
-    initial_tasks = await get_tasks()
+    initial_tasks = svc.list_all()
     await websocket.send_json({"type": "tasks_updated", "tasks": initial_tasks})
 
     try:

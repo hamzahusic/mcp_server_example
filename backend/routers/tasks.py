@@ -1,7 +1,6 @@
-import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from mcp_client import call_tool
+import services.tasks as svc
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -10,38 +9,35 @@ class CreateTaskBody(BaseModel):
     title: str
 
 
-@router.get("/")
-async def list_tasks():
-    return json.loads(await call_tool("list_tasks", {}))
+@router.get("")
+def list_tasks():
+    return svc.list_all()
 
 
 @router.post("/", status_code=201)
-async def create_task(body: CreateTaskBody):
-    result = json.loads(await call_tool("add_task", {"title": body.title}))
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
+def create_task(body: CreateTaskBody):
+    return svc.create(body.title)
 
 
 @router.patch("/{task_id}/complete")
-async def complete_task(task_id: int):
-    result = json.loads(await call_tool("complete_task", {"task_id": task_id}))
+def complete_task(task_id: int):
+    result = svc.complete(task_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 
 @router.patch("/{task_id}/reopen")
-async def reopen_task(task_id: int):
-    result = json.loads(await call_tool("reopen_task", {"task_id": task_id}))
+def reopen_task(task_id: int):
+    result = svc.reopen(task_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: int):
-    result = json.loads(await call_tool("delete_task", {"task_id": task_id}))
+def delete_task(task_id: int):
+    result = svc.remove(task_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result
