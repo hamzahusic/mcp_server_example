@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  mcp_server:
+    build: ./mcp_server
+    container_name: mcp_server
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MCP_SERVER_URL=http://mcp_server:8002/sse
+      - OLLAMA_URL=http://host.docker.internal:11434
+    depends_on:
+      - mcp_server
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - BACKEND_HOST=backend
+    depends_on:
+      - backend
+    restart: unless-stopped
