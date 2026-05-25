@@ -3,7 +3,7 @@ import json
 from datetime import date
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import services.tasks as svc
-from mcp_client import call_tool, get_tools, MCP_SERVER_URL
+from mcp_client import call_tool, get_tools
 
 router = APIRouter()
 
@@ -117,33 +117,62 @@ async def stream_response_ollama(websocket: WebSocket, history: list):
 
 
 async def stream_response_anthropic(websocket: WebSocket, history: list):
-    # Anthropic's MCP client beta discovers and executes tools directly via the MCP server.
-    response = anthropic_client.beta.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        system=(
-            f"You are a task management assistant. Today is {date.today().strftime('%B %d, %Y')}. "
-            f"Use your tools for every task operation. Be concise."
-        ),
-        messages=history.copy(),
-        mcp_servers=[{"type": "url", "url": MCP_SERVER_URL, "name": "tasks"}],
-        betas=["mcp-client-2025-04-04"],
-    )
+    tools = await get_tools()
+    anthropic_tools = [
+        {
+            "name": t["function"]["name"],
+            "description": t["function"]["description"],
+            "input_schema": t["function"]["parameters"],
+        }
+        for t in tools
+    ]
 
+    messages = history.copy()
     full_text = ""
-    for block in response.content:
-        if hasattr(block, "text"):
-            full_text += block.text
-            await websocket.send_json({"type": "text_delta", "content": block.text})
+
+    while True:
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=(
+                f"You are a task management assistant. Today is {date.today().strftime('%B %d, %Y')}. "
+                f"Use your tools for every task operation. Be concise."
+            ),
+            messages=messages,
+            tools=anthropic_tools,
+        )
+
+        tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+
+        for block in response.content:
+            if block.type == "text" and block.text:
+                full_text += block.text
+                await websocket.send_json({"type": "text_delta", "content": block.text})
+
+        if not tool_use_blocks:
+            break
+
+        messages.append({
+            "role": "assistant",
+            "content": [b.model_dump() for b in response.content],
+        })
+
+        tool_results = []
+        for block in tool_use_blocks:
+            tool_result = await call_tool(block.name, block.input)
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": tool_result,
+            })
+
+        messages.append({"role": "user", "content": tool_results})
 
     tasks = svc.list_all()
     await websocket.send_json({"type": "tasks_updated", "tasks": tasks})
     await websocket.send_json({"type": "message_complete"})
 
-    if full_text:
-        history.append({"role": "assistant", "content": full_text})
-    else:
-        history.append({"role": "assistant", "content": response.content})
+    history.append({"role": "assistant", "content": full_text or ""})
 
 
 @router.websocket("/ws/agent")
